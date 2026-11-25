@@ -287,10 +287,44 @@ Khi script đọc lại session, API trả **10 tin nhắn**. Đọc trực ti�
 
 Đã chạy `docker compose -p k5-day14-scaling down` và xác nhận còn **0 container** của project.
 
+## Part 6 — Production-ready agent (CP5)
+
+Chạy `python check_production_ready.py` đầy đủ từ `06-lab-complete/` trong Ubuntu WSL2 với Python 3.12.3 (`os.name=posix`) và Docker Engine 28.5.1. Checker tự khởi động Redis tạm và thoát với mã `0`.
+
+### Checklist Deliverable
+
+```text
+  📋 Checklist Deliverable
+     ✅ Dockerfile (multi-stage, < 500 MB)
+     ✅ docker-compose.yml (agent + redis)
+     ✅ .dockerignore
+     ✅ Health check endpoint (GET /health)
+     ✅ Readiness endpoint (GET /ready)
+     ✅ API Key authentication
+     ✅ Rate limiting
+     ✅ Cost guard
+     ✅ Config từ environment variables
+     ✅ Structured logging
+     ✅ Graceful shutdown
+     ✅ Public URL ready (Railway / Render config)
+----------------------------------------------------------------
+  Result: 12/12 tiêu chí đạt · 43/43 checks passed
+  🎉 PASS 12/12 — PRODUCTION READY! Deploy nào!
+```
+
+Các phép kiểm runtime ghi nhận image **56 MB theo phép đo của checker**, `429` sau 5 lượt với hạn mức 5 lượt/phút và vẫn `429` sau khi restart agent. Lượt thử giảm ngân sách trả `402`. Khi nhận SIGTERM trong lúc xử lý request, request trả `200` và tiến trình thoát với mã `0`. Phép kiểm `docker stop` báo mã `0` sau **0,9 giây**.
+
+### Kiểm tra thêm qua Docker Compose
+
+- Với cấu hình hai worker và cổng tùy chỉnh, cả `agent` và `redis` báo healthy. `/ask` trả `401` khi thiếu hoặc sai API key, và `422` khi câu hỏi chỉ gồm khoảng trắng.
+- Gửi 12 request đồng thời với cùng API key và các `user_id` khác nhau, kết quả là **5 × `200` và 7 × `429`**. Các phản hồi `429` đều có `Retry-After`. Redis xử lý nguyên tử toàn bộ phép kiểm và ghi lượt trong cửa sổ 60 giây.
+- Sau khi dừng Redis, `/health` trả `200` và `/ready` trả `503`. Đã dọn stack Compose thử nghiệm.
+
 ## AI log
 
 - **CP0.** Dùng Codex để đối chiếu kế hoạch với tài liệu K5 và kiểm tra môi trường. Codex xác nhận Python trong Ubuntu là `3.12.3`, `os.name=posix`, container `hello-world` chạy được và GitHub báo repo Public. Tôi đã xác nhận CP0 trước khi chuyển sang CP1.
 - **CP1.** Dùng Codex để chạy hai ví dụ, đối chiếu code và soạn câu trả lời Exercise 1.1–1.3. Các kết quả HTTP trong mục CP1 lấy từ lệnh chạy trong Ubuntu WSL2. Tôi đã xác nhận CP1 trước khi chuyển sang CP2.
 - **CP2.** Sau khi tôi xác nhận CP1, dùng Codex để build hai image, đọc số đo từ `docker images`, kiểm tra container và stack Nginx, rồi ghi kết quả cùng sơ đồ Compose. Số đo và output HTTP lấy từ lượt chạy trong Ubuntu WSL2. Tôi đã xác nhận CP2 trước khi chuyển sang CP3.
 - **CP3.** Dùng Codex để chạy các ví dụ API key và JWT, ghi kết quả HTTP đã che token, đọc implementation và giải thích rate limit cùng cost guard. Codex đối chiếu từng mã HTTP với kết quả chạy thực tế. Tôi đã xác nhận CP3 trước khi chuyển sang CP4.
-- **CP4.** Dùng Codex để chạy Compose với ba replica, đối chiếu `served_by` và lịch sử trong Redis, kiểm tra hai probe và xem log shutdown. Kết quả được lấy từ các lệnh thực tế trong Ubuntu WSL2. Phần CP4 đang chờ tôi kiểm tra trước khi sang CP5.
+- **CP4.** Dùng Codex để chạy Compose với ba replica, đối chiếu `served_by` và lịch sử trong Redis, kiểm tra hai probe và xem log shutdown. Kết quả được lấy từ các lệnh thực tế trong Ubuntu WSL2. Tôi đã xác nhận CP4 trước khi chuyển sang CP5.
+- **CP5.** Dùng Codex để đọc hợp đồng Part 6, hoàn thiện các TODO và giải thích cơ chế auth, rate limit, cost guard, health/readiness và shutdown. Codex chạy checker gốc đầy đủ trong WSL2 có Docker và kiểm tra thêm luồng Compose với 12 request đồng thời. Phần CP5 đang chờ tôi kiểm tra trước khi sang CP6.
