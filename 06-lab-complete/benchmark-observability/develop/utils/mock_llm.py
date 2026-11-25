@@ -78,12 +78,20 @@ KNOWLEDGE_BASE: list[tuple[list[str], str]] = [
     (["rate limit", "429"],
      "Rate limiting giới hạn số request mỗi client trong một cửa sổ thời gian, ví dụ 10 req/phút. "
      "Vượt giới hạn thì trả HTTP 429 Too Many Requests kèm header Retry-After."),
+    (["jwt", "json web token"],
+     "JWT là token có thể mang định danh, quyền và thời điểm hết hạn. Trong ví dụ dùng JWT đã ký, "
+     "server kiểm tra chữ ký và hạn dùng của token. API key trong bài là giá trị server đối chiếu "
+     "với khóa đã cấu hình."),
     (["stateless", "redis", "session"],
      "Stateless nghĩa là instance không giữ state trong memory; session được lưu ở Redis. "
      "Nhờ vậy có thể scale ngang nhiều instance sau load balancer."),
     (["load balancer", "nginx", "round-robin"],
      "Load balancer như Nginx phân phối request tới nhiều instance theo round-robin, "
      "và bỏ qua instance không healthy."),
+    (["horizontal pod autoscaler", "hpa"],
+     "Kubernetes Horizontal Pod Autoscaler (HPA) tự điều chỉnh số replica dựa trên chỉ số "
+     "tài nguyên như CPU hoặc memory, hay custom metrics như số request mỗi giây nếu đã cấu hình. "
+     "HPA so sánh chỉ số hiện tại với mục tiêu để quyết định tăng hoặc giảm replica."),
     (["p95", "p99", "percentile", "tail latency", "trung bình"],
      "Percentile p95 là ngưỡng mà 95% request nhanh hơn. Latency trung bình (average) che giấu "
      "tail latency, nên SLO thường đặt theo p95 hoặc p99."),
