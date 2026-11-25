@@ -154,8 +154,80 @@ Content-Type: application/json
 
 Đã chạy `docker compose -p k5-day14-docker down` và kiểm tra còn 0 container của project. Compose báo thuộc tính `version` đã cũ và bỏ qua thuộc tính đó. Stack vẫn khởi động và trả kết quả như trên.
 
+## Part 4 — API Security
+
+### Exercise 4.1 — API key ở bản develop
+
+Chạy hai ví dụ bằng Docker từ Ubuntu WSL2, dùng image `my-agent:develop` đã build ở CP2 làm môi trường Python tạm. Mỗi container chạy `app.py` của đúng thư mục mẫu trên `127.0.0.1:8000`. Bản develop dùng API key tạm qua biến môi trường. Dừng bản develop trước khi bật bản production và cài dependency theo `production/requirements.txt`.
+
+Cả hai lệnh gửi `POST /ask` với JSON `{"question":"Hello"}`. Lệnh thứ hai thêm header `X-API-Key` hợp lệ. [develop/app.py dòng 33–51](04-api-gateway/develop/app.py#L33-L51)
+
+**Thiếu API key**
+
+```http
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+
+{"detail":"Missing API key. Include header: X-API-Key: <your-key>"}
+```
+
+**Có API key hợp lệ**
+
+```http
+HTTP/1.1 200 OK
+content-type: application/json
+
+{"question":"Hello","answer":"Agent đang hoạt động tốt! (mock response) Hỏi thêm câu hỏi đi nhé."}
+```
+
+### Exercise 4.2 — JWT ở bản production
+
+`POST /auth/token` với tài khoản mẫu `student` trả HTTP `200`. Sau khi xác thực thông tin đăng nhập, server ký JWT chứa định danh người dùng, role, thời điểm phát hành và hạn dùng. Client gửi JWT qua `Authorization: Bearer <token>` khi gọi `/ask`. Server xác minh chữ ký và hạn dùng trước khi dùng role và định danh từ token. [auth.py dòng 35–70](04-api-gateway/production/auth.py#L35-L70)
+
+**Phản hồi cấp token đã che JWT và phần JWT lặp lại trong `hint`**
+
+```text
+HTTP/1.1 200 OK
+{"access_token": "[REDACTED]", "token_type": "bearer", "expires_in_minutes": 60, "hint": "[REDACTED]"}
+```
+
+### Exercise 4.3 — Sliding window và phản hồi 429
+
+Gửi liên tiếp 20 request `POST /ask` bằng JWT của `student` trong cùng một cửa sổ thời gian. Request **1–10 trả `200`**, còn request **11–20 trả `429`**. Số lượt còn lại trong body giảm từ `9` ở request đầu xuống `0` ở request thứ 10.
+
+**Request 1 trong vòng lặp**
+
+```http
+HTTP/1.1 200 OK
+content-type: application/json
+
+{"question":"Explain JWT","answer":"Tôi là AI agent được deploy lên cloud. Câu hỏi của bạn đã được nhận.","usage":{"requests_remaining":9,"budget_remaining_usd":1.9e-05}}
+```
+
+**Request 11, lần đầu bị giới hạn**
+
+```http
+HTTP/1.1 429 Too Many Requests
+x-ratelimit-limit: 10
+x-ratelimit-remaining: 0
+x-ratelimit-reset: 1795602821
+retry-after: 59
+content-type: application/json
+
+{"detail":{"error":"Rate limit exceeded","limit":10,"window_seconds":60,"retry_after_seconds":59}}
+```
+
+Bộ giới hạn dùng **sliding window log** với một `deque` timestamp trong RAM cho mỗi username. Trước mỗi request, nó bỏ timestamp cũ hơn 60 giây và đếm các lượt còn trong cửa sổ. Nếu đã đủ giới hạn, ứng dụng trả `429` và `Retry-After` tính theo thời điểm lượt cũ nhất hết cửa sổ. Nếu còn chỗ, nó ghi timestamp mới. Role `user` được 10 lượt/60 giây, role `admin` đã xác thực được 100 lượt/60 giây và vẫn chịu giới hạn. State hiện thuộc từng tiến trình, nên nhiều worker cần kho dùng chung để áp cùng một hạn mức. [rate_limiter.py dòng 16–87](04-api-gateway/production/rate_limiter.py#L16-L87) · [app.py dòng 138–145](04-api-gateway/production/app.py#L138-L145)
+
+### Exercise 4.4 — Cost guard
+
+- Bản mẫu kiểm ngân sách **sau rate limit và trước khi gọi mock LLM**. Mỗi người dùng có ngưỡng **1 USD/ngày** và log cảnh báo từ 80%. Khi chi phí đã đạt ngưỡng cá nhân, request tiếp theo nhận `402`. Nếu tổng chi phí trong tiến trình đạt ngưỡng global **10 USD**, kiểm tra global ưu tiên trả `503`. [app.py dòng 138–154](04-api-gateway/production/app.py#L138-L154) · [cost_guard.py dòng 40–91](04-api-gateway/production/cost_guard.py#L40-L91)
+- Sau khi gọi mock LLM, app cộng số token đầu vào và đầu ra ước tính. Chi phí được tính riêng cho hai loại token rồi cộng lại theo đơn giá cố định trong code. `GET /me/usage` ghi nhận **10 request**, **40 input token**, **320 output token**, **0,000198 USD** đã dùng và **0,999802 USD** ngân sách còn lại. Request bị `429` bị chặn trước bước ghi usage. Trường `usage.budget_remaining_usd` trong `POST /ask` đang trả số **đã dùng**, còn trường cùng tên trong `GET /me/usage` trả số **còn lại**. Trong lần chạy này chưa chạm ngưỡng `402` hay `503`. [app.py dòng 147–168](04-api-gateway/production/app.py#L147-L168) · [cost_guard.py dòng 19–36](04-api-gateway/production/cost_guard.py#L19-L36) · [cost_guard.py dòng 93–124](04-api-gateway/production/cost_guard.py#L93-L124)
+- Để dùng cho nhiều worker, lưu số tiền theo người dùng và kỳ ngân sách trong Redis, đặt TTL để dọn kỳ cũ. Với bài tập ngân sách tháng, dùng khóa theo `user_id` và `YYYY-MM`, tính số đã dùng cộng chi phí dự kiến rồi mới cho phép request. Thực hiện kiểm tra và giữ chỗ ngân sách trong cùng thao tác nguyên tử, sau đó đối soát theo lượng token thực tế. Bản mẫu CP3 lưu trong RAM, tạo lại record theo ngày cho từng user và chưa làm mới bộ đếm global khi sang ngày mới. [Exercise 4.4](CODE_LAB.md#exercise-44-cost-guard) · [cost_guard.py dòng 49–58](04-api-gateway/production/cost_guard.py#L49-L58)
+
 ## AI log
 
 - **CP0.** Dùng Codex để đối chiếu kế hoạch với tài liệu K5 và kiểm tra môi trường. Codex xác nhận Python trong Ubuntu là `3.12.3`, `os.name=posix`, container `hello-world` chạy được và GitHub báo repo Public. Tôi đã xác nhận CP0 trước khi chuyển sang CP1.
 - **CP1.** Dùng Codex để chạy hai ví dụ, đối chiếu code và soạn câu trả lời Exercise 1.1–1.3. Các kết quả HTTP trong mục CP1 lấy từ lệnh chạy trong Ubuntu WSL2. Tôi đã xác nhận CP1 trước khi chuyển sang CP2.
-- **CP2.** Sau khi tôi xác nhận CP1, dùng Codex để build hai image, đọc số đo từ `docker images`, kiểm tra container và stack Nginx, rồi ghi kết quả cùng sơ đồ Compose. Số đo và output HTTP lấy từ lượt chạy trong Ubuntu WSL2. Phần CP2 đang chờ tôi đối chiếu trước khi sang CP3.
+- **CP2.** Sau khi tôi xác nhận CP1, dùng Codex để build hai image, đọc số đo từ `docker images`, kiểm tra container và stack Nginx, rồi ghi kết quả cùng sơ đồ Compose. Số đo và output HTTP lấy từ lượt chạy trong Ubuntu WSL2. Tôi đã xác nhận CP2 trước khi chuyển sang CP3.
+- **CP3.** Dùng Codex để chạy các ví dụ API key và JWT, ghi kết quả HTTP đã che token, đọc implementation và giải thích rate limit cùng cost guard. Codex đối chiếu từng mã HTTP với kết quả chạy thực tế. Phần CP3 đang chờ tôi kiểm tra trước khi sang CP4.
