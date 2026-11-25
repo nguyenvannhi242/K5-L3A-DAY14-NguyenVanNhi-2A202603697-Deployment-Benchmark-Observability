@@ -158,7 +158,7 @@ Content-Type: application/json
 
 ### Exercise 3.1–3.2 — Deploy agent Part 6
 
-Đã deploy agent Part 6 từ commit `af2ece2` lên Render Free tại Ohio, với Key Value tương thích Redis qua mạng nội bộ. URL public là [day14-production-agent-0m8h.onrender.com](https://day14-production-agent-0m8h.onrender.com).
+Đã deploy agent Part 6 từ nhánh `main` (lần đầu ở commit `af2ece2`, deploy lại ở commit `6df9c64`) lên Render Free tại Ohio, với Key Value tương thích Redis qua mạng nội bộ. URL public là [day14-production-agent-0m8h.onrender.com](https://day14-production-agent-0m8h.onrender.com).
 
 | Phép kiểm qua URL public | HTTP thực tế |
 | --- | ---: |
@@ -362,4 +362,5 @@ Các phép kiểm runtime ghi nhận image **56 MB theo phép đo của checker*
 - **CP5.** Dùng Codex để đọc hợp đồng Part 6, hoàn thiện các TODO và giải thích cơ chế auth, rate limit, cost guard, health/readiness và shutdown. Codex chạy checker gốc đầy đủ trong WSL2 có Docker và kiểm tra thêm luồng Compose với 12 request đồng thời. Tôi đã xác nhận CP5 trước khi chuyển sang CP6.
 - **CP6.** Dùng Codex để so sánh cấu hình Railway và Render, đọc pipeline mẫu Cloud Run, triển khai agent cùng Key Value và chạy bốn lệnh curl từ Ubuntu WSL2. Tôi đăng nhập Render và trao lại quyền điều khiển. Codex xác minh kết quả với mã HTTP thật, kiểm tra ảnh để tránh lộ secret và ghi thông tin vào `DEPLOYMENT.md`. Tôi đã xác nhận CP6 trước khi chuyển sang CP7.
 - **CP7.** Dùng Codex để thêm histogram độ dài câu hỏi, chạy bảy lượt load test và ba lượt eval, cập nhật knowledge base từ các lỗi của baseline và ghi `BENCHMARK_REPORT.md`. Codex kiểm tra lại đủ 23 câu với baseline v2 gốc và đối chiếu bảng báo cáo với JSON. Tôi đã xác nhận CP7 trước khi chuyển sang CP8.
-- **CP8.** Dùng Codex để đọc log khởi động, sửa đường dẫn dependency của user non-root và chạy lại Locust với đúng số replica. Codex đối chiếu số liệu với CSV, ghép trace với log JSON, đo thời gian alert và xác minh trên dashboard trước khi dọn stack. Tôi sẽ kiểm tra báo cáo CP8 và các ảnh bằng chứng.
+- **CP8.** Dùng Codex để đọc log khởi động, sửa đường dẫn dependency của user non-root và chạy lại Locust với đúng số replica. Codex đối chiếu số liệu với CSV, ghép trace với log JSON, đo thời gian alert và xác minh trên dashboard trước khi dọn stack. Tôi đã kiểm tra báo cáo CP8 và các ảnh bằng chứng.
+- **Rà soát trước khi nộp.** Dùng Claude Code để đối chiếu bài với `RUBRIC.md`, so số liệu `BENCHMARK_REPORT.md` với các file JSON/CSV, quét secret trong lịch sử commit và chạy lại checker gốc trên bản clone sạch. Lượt rà soát phát hiện URL Render trả `502` vì service không còn bản deploy đang chạy. Sau khi tôi deploy lại từ commit `6df9c64`, `/health` và `/ready` trả `200`, `/ask` thiếu hoặc sai key trả `401`, và checker với `--public-url` xác nhận `GET /health` trả `200`.
