@@ -225,9 +225,72 @@ Bộ giới hạn dùng **sliding window log** với một `deque` timestamp tro
 - Sau khi gọi mock LLM, app cộng số token đầu vào và đầu ra ước tính. Chi phí được tính riêng cho hai loại token rồi cộng lại theo đơn giá cố định trong code. `GET /me/usage` ghi nhận **10 request**, **40 input token**, **320 output token**, **0,000198 USD** đã dùng và **0,999802 USD** ngân sách còn lại. Request bị `429` bị chặn trước bước ghi usage. Trường `usage.budget_remaining_usd` trong `POST /ask` đang trả số **đã dùng**, còn trường cùng tên trong `GET /me/usage` trả số **còn lại**. Trong lần chạy này chưa chạm ngưỡng `402` hay `503`. [app.py dòng 147–168](04-api-gateway/production/app.py#L147-L168) · [cost_guard.py dòng 19–36](04-api-gateway/production/cost_guard.py#L19-L36) · [cost_guard.py dòng 93–124](04-api-gateway/production/cost_guard.py#L93-L124)
 - Để dùng cho nhiều worker, lưu số tiền theo người dùng và kỳ ngân sách trong Redis, đặt TTL để dọn kỳ cũ. Với bài tập ngân sách tháng, dùng khóa theo `user_id` và `YYYY-MM`, tính số đã dùng cộng chi phí dự kiến rồi mới cho phép request. Thực hiện kiểm tra và giữ chỗ ngân sách trong cùng thao tác nguyên tử, sau đó đối soát theo lượng token thực tế. Bản mẫu CP3 lưu trong RAM, tạo lại record theo ngày cho từng user và chưa làm mới bộ đếm global khi sang ngày mới. [Exercise 4.4](CODE_LAB.md#exercise-44-cost-guard) · [cost_guard.py dòng 49–58](04-api-gateway/production/cost_guard.py#L49-L58)
 
+## Part 5 — Scaling & Reliability
+
+### Exercise 5.1 — Liveness và readiness
+
+Liveness trả lời tiến trình còn phục vụ được hay không. Readiness trả lời replica có các phụ thuộc cần thiết để nhận traffic hay không. Khi mất Redis sau lúc khởi động, bản production vẫn trả `200` ở `/health` với trạng thái `degraded`, còn `/ready` trả `503`. Compose dùng `/health` làm container healthcheck. Hệ thống điều phối có thể dùng `/ready` để tạm ngừng đưa request tới replica khi Redis gián đoạn. [production/app.py dòng 187–215](05-scaling-reliability/production/app.py#L187-L215) · [docker-compose.yml dòng 32–41](05-scaling-reliability/production/docker-compose.yml#L32-L41)
+
+### Exercise 5.2 — Graceful shutdown
+
+Khi nhận SIGTERM, server ngừng nhận kết nối mới, cho request đang xử lý thời gian hoàn tất rồi chạy hook shutdown để dọn tài nguyên trước khi hết thời gian chờ. Bản develop minh họa việc hạ cờ readiness và theo dõi request đang chạy. Trong stack production, Uvicorn chạy trực tiếp trong container và gọi hook FastAPI khi tắt. [develop/app.py dòng 41–66](05-scaling-reliability/develop/app.py#L41-L66) · [production/app.py dòng 93–99](05-scaling-reliability/production/app.py#L93-L99) · [Dockerfile](05-scaling-reliability/production/Dockerfile)
+
+### Exercise 5.3 — Session stateless nhờ Redis
+
+Client gửi lại cùng `session_id` cho các lượt tiếp theo. Mỗi replica đọc và ghi cùng khóa `session:<session_id>` trên Redis. Mỗi lần ghi đặt TTL 3.600 giây và lịch sử giữ tối đa 20 tin nhắn. Nhờ đó, request sau có thể đến một replica khác mà vẫn tiếp tục được cuộc trò chuyện. Nếu Redis chưa kết nối được lúc khởi động, bản mẫu có chế độ fallback lưu RAM riêng từng tiến trình. Lịch sử ở chế độ đó chỉ có trên replica đã ghi nó. [production/app.py dòng 34–90](05-scaling-reliability/production/app.py#L34-L90) · [production/app.py dòng 128–169](05-scaling-reliability/production/app.py#L128-L169)
+
+### Exercise 5.4 — Chạy ba replica qua Nginx
+
+Trong `05-scaling-reliability/production/`, tạo `.env.local` rỗng rồi chạy các lệnh sau trong Ubuntu WSL2.
+
+```bash
+docker compose -p k5-day14-scaling up -d --build --scale agent=3 --wait --wait-timeout 180
+docker compose -p k5-day14-scaling ps
+python3 test_stateless.py
+docker compose -p k5-day14-scaling logs agent
+```
+
+Compose báo **3 agent healthy**, **Redis healthy** và **Nginx đang chạy**. Nginx nhận request ở `localhost:8080` và chuyển tiếp đến các replica theo tên service `agent:8000`. Các agent và Redis giao tiếp trên mạng nội bộ của Compose. [docker-compose.yml](05-scaling-reliability/production/docker-compose.yml) · [nginx.conf](05-scaling-reliability/production/nginx.conf)
+
+| Probes qua Nginx | Redis đang chạy | Sau khi dừng Redis |
+| --- | --- | --- |
+| `GET /health` | HTTP `200`, `status=ok`, `redis_connected=true` | HTTP `200`, `status=degraded`, `redis_connected=false` |
+| `GET /ready` | HTTP `200`, `ready=true` | HTTP `503`, `{"detail":"Redis not available"}` |
+
+Một lượt gọi `/ready` sau khi dừng Redis hết thời gian chờ khi đặt giới hạn 10 giây cho curl. Lượt kiểm tra lại cho phép chờ tối đa 50 giây và thu được HTTP `503` như trên.
+
+Kiểm tra shutdown bổ sung bằng `docker stop --time 15` trên một replica sau khi hoàn tất các request. Docker ghi exit code `0` và log có các dòng sau.
+
+```text
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:app:Instance instance-472a05 shutting down
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1]
+```
+
+Lượt này xác nhận Uvicorn hoàn tất vòng đời shutdown của replica đang rảnh. Kịch bản SIGTERM khi có request đang xử lý cần kiểm tra riêng ở CP5.
+
+### Exercise 5.5 — Kết quả `test_stateless.py`
+
+Cả 5 request `POST /chat` của cùng một session trả `200`. Bảng dưới đây lấy từ trường `served_by` mà script in ra. Log access của agent xác nhận cả ba replica đều đã xử lý request.
+
+| Request | Replica phục vụ |
+| ---: | --- |
+| 1 | `instance-716f67` |
+| 2 | `instance-1ea88a` |
+| 3 | `instance-472a05` |
+| 4 | `instance-716f67` |
+| 5 | `instance-1ea88a` |
+
+Khi script đọc lại session, API trả **10 tin nhắn**. Đọc trực tiếp khóa `session:<session_id>` bằng `redis-cli` cho kết quả `Stored messages: 10 user: 5 assistant: 5` và TTL còn **3598 giây** tại thời điểm đo. Năm lượt hỏi đáp vẫn nằm trong cùng một lịch sử dù được xử lý bởi ba replica khác nhau. Script gửi các lượt tuần tự và đọc lại lịch sử. Việc dừng replica ở trên diễn ra sau bài test. [test_stateless.py dòng 49–82](05-scaling-reliability/production/test_stateless.py#L49-L82)
+
+Đã chạy `docker compose -p k5-day14-scaling down` và xác nhận còn **0 container** của project.
+
 ## AI log
 
 - **CP0.** Dùng Codex để đối chiếu kế hoạch với tài liệu K5 và kiểm tra môi trường. Codex xác nhận Python trong Ubuntu là `3.12.3`, `os.name=posix`, container `hello-world` chạy được và GitHub báo repo Public. Tôi đã xác nhận CP0 trước khi chuyển sang CP1.
 - **CP1.** Dùng Codex để chạy hai ví dụ, đối chiếu code và soạn câu trả lời Exercise 1.1–1.3. Các kết quả HTTP trong mục CP1 lấy từ lệnh chạy trong Ubuntu WSL2. Tôi đã xác nhận CP1 trước khi chuyển sang CP2.
 - **CP2.** Sau khi tôi xác nhận CP1, dùng Codex để build hai image, đọc số đo từ `docker images`, kiểm tra container và stack Nginx, rồi ghi kết quả cùng sơ đồ Compose. Số đo và output HTTP lấy từ lượt chạy trong Ubuntu WSL2. Tôi đã xác nhận CP2 trước khi chuyển sang CP3.
-- **CP3.** Dùng Codex để chạy các ví dụ API key và JWT, ghi kết quả HTTP đã che token, đọc implementation và giải thích rate limit cùng cost guard. Codex đối chiếu từng mã HTTP với kết quả chạy thực tế. Phần CP3 đang chờ tôi kiểm tra trước khi sang CP4.
+- **CP3.** Dùng Codex để chạy các ví dụ API key và JWT, ghi kết quả HTTP đã che token, đọc implementation và giải thích rate limit cùng cost guard. Codex đối chiếu từng mã HTTP với kết quả chạy thực tế. Tôi đã xác nhận CP3 trước khi chuyển sang CP4.
+- **CP4.** Dùng Codex để chạy Compose với ba replica, đối chiếu `served_by` và lịch sử trong Redis, kiểm tra hai probe và xem log shutdown. Kết quả được lấy từ các lệnh thực tế trong Ubuntu WSL2. Phần CP4 đang chờ tôi kiểm tra trước khi sang CP5.
