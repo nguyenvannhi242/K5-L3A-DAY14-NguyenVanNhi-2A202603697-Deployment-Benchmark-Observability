@@ -6,7 +6,9 @@
 
 ## Platform
 
-Render Free, vùng Ohio (US East), môi trường `Production`. Web service `day14-production-agent` và Key Value `day14-agent-redis` được tạo qua dashboard. Web service build bằng Docker từ commit `af2ece2` trên nhánh `main`, với root directory và build context là `06-lab-complete/`. Render kiểm tra `/health` để xác nhận deploy. [Cấu hình Blueprint tương ứng](06-lab-complete/render.yaml)
+Render Free, vùng Ohio (US East), môi trường `Production`. Web service `day14-production-agent` và Key Value `day14-agent-redis` được tạo qua dashboard. Web service build bằng Docker từ nhánh `main`, với root directory và build context là `06-lab-complete/`. Render kiểm tra `/health` để xác nhận deploy. URL gốc chuyển hướng đến Swagger UI tại `/docs`. [Cấu hình Blueprint tương ứng](06-lab-complete/render.yaml)
+
+Ngày 25/11/2026, Render ghi nhận instance nhiều lần vượt giới hạn RAM 512 MB, làm URL public trả HTTP 502. Dockerfile dùng một worker Uvicorn mặc định để giảm mức sử dụng RAM trên Render Free.
 
 ## Test Commands
 
@@ -42,6 +44,7 @@ Phép kiểm URL public của checker gốc cũng báo đạt khi gọi `GET /he
 | Biến | Nguồn giá trị khi deploy |
 | --- | --- |
 | `PORT` | Render cấp cổng `10000`, Dockerfile đọc khi khởi động |
+| `AGENT_WORKERS` | Dockerfile mặc định dùng `1` worker |
 | `ENVIRONMENT` | `production`, đặt trong dashboard |
 | `REDIS_URL` | URL nội bộ của Render Key Value, đặt trong dashboard |
 | `AGENT_API_KEY` | Giá trị sinh bằng nút Generate trong dashboard |

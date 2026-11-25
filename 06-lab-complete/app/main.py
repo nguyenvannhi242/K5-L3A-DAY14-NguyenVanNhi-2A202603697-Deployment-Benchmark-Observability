@@ -8,7 +8,7 @@ from time import perf_counter
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, StringConstraints
 from redis.exceptions import RedisError
 
@@ -84,6 +84,11 @@ async def log_request(request: Request, call_next):
 async def redis_unavailable(_: Request, exc: RedisError) -> JSONResponse:
     logger.warning("redis_unavailable", extra={"error_type": type(exc).__name__})
     return JSONResponse(status_code=503, content={"detail": "Redis unavailable"})
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")
