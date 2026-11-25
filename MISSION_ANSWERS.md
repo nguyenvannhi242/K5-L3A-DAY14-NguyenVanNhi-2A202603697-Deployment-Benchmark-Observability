@@ -154,6 +154,38 @@ Content-Type: application/json
 
 Đã chạy `docker compose -p k5-day14-docker down` và kiểm tra còn 0 container của project. Compose báo thuộc tính `version` đã cũ và bỏ qua thuộc tính đó. Stack vẫn khởi động và trả kết quả như trên.
 
+## Part 3 — Cloud Deployment (CP6)
+
+### Exercise 3.1–3.2 — Deploy agent Part 6
+
+Đã deploy agent Part 6 từ commit `af2ece2` lên Render Free tại Ohio, với Key Value tương thích Redis qua mạng nội bộ. URL public là [day14-production-agent-0m8h.onrender.com](https://day14-production-agent-0m8h.onrender.com).
+
+| Phép kiểm qua URL public | HTTP thực tế |
+| --- | ---: |
+| `GET /health` | `200` |
+| `GET /ready` | `200` |
+| `POST /ask` thiếu API key | `401` |
+| `POST /ask` với API key hợp lệ | `200` |
+
+Lệnh tái hiện các phép kiểm, thông tin cấu hình và ba ảnh nằm trong [DEPLOYMENT.md](DEPLOYMENT.md). Phép kiểm URL public trong checker gốc xác nhận `GET /health` trả `200`.
+
+| Hạng mục | Railway | Render |
+| --- | --- | --- |
+| Build và khởi động | `railway.toml` chọn builder `DOCKERFILE`. Khi kết nối repo, cấu hình thư mục nguồn và đường dẫn config của service. | `render.yaml` khai báo web service Docker và chỉ rõ Dockerfile cùng build context trong `06-lab-complete/`. |
+| Healthcheck và cổng | `healthcheckPath = "/health"` trong khối `[deploy]`. | `healthCheckPath: /health` trên web service. |
+| Redis và secret | Tạo Redis cho project rồi đặt `REDIS_URL` và `AGENT_API_KEY` trong biến môi trường của agent. | Blueprint khai báo Key Value, tham chiếu connection string bằng `fromService` và tạo `AGENT_API_KEY` bằng `generateValue`. |
+
+Cả hai dùng lệnh khởi động trong Dockerfile, đọc cổng từ `PORT`. [railway.toml](06-lab-complete/railway.toml) · [render.yaml](06-lab-complete/render.yaml) · [Railway Config as Code](https://docs.railway.com/config-as-code/reference) · [Render Blueprint YAML](https://render.com/docs/blueprint-spec)
+
+### Exercise 3.3 — Pipeline Cloud Run
+
+1. Cloud Build dùng image Python 3.11 để cài dependency cùng pytest, sau đó chạy `pytest tests/`.
+2. Bước Docker build gắn tag `$COMMIT_SHA` và `latest`, rồi bước push đưa cả hai tag lên registry khai báo trong YAML.
+3. Bước gcloud deploy image theo `$COMMIT_SHA` lên Cloud Run tại `asia-southeast1` và lấy `OPENAI_API_KEY` từ Secret Manager.
+4. `service.yaml` mô tả cấu hình service, gồm 1–10 instance, tối đa 80 request đồng thời mỗi instance, cổng 8000 và probe `/health`, `/ready`.
+
+[cloudbuild.yaml](03-cloud-deployment/production-cloud-run/cloudbuild.yaml) · [service.yaml](03-cloud-deployment/production-cloud-run/service.yaml)
+
 ## Part 4 — API Security
 
 ### Exercise 4.1 — API key ở bản develop
@@ -327,4 +359,5 @@ Các phép kiểm runtime ghi nhận image **56 MB theo phép đo của checker*
 - **CP2.** Sau khi tôi xác nhận CP1, dùng Codex để build hai image, đọc số đo từ `docker images`, kiểm tra container và stack Nginx, rồi ghi kết quả cùng sơ đồ Compose. Số đo và output HTTP lấy từ lượt chạy trong Ubuntu WSL2. Tôi đã xác nhận CP2 trước khi chuyển sang CP3.
 - **CP3.** Dùng Codex để chạy các ví dụ API key và JWT, ghi kết quả HTTP đã che token, đọc implementation và giải thích rate limit cùng cost guard. Codex đối chiếu từng mã HTTP với kết quả chạy thực tế. Tôi đã xác nhận CP3 trước khi chuyển sang CP4.
 - **CP4.** Dùng Codex để chạy Compose với ba replica, đối chiếu `served_by` và lịch sử trong Redis, kiểm tra hai probe và xem log shutdown. Kết quả được lấy từ các lệnh thực tế trong Ubuntu WSL2. Tôi đã xác nhận CP4 trước khi chuyển sang CP5.
-- **CP5.** Dùng Codex để đọc hợp đồng Part 6, hoàn thiện các TODO và giải thích cơ chế auth, rate limit, cost guard, health/readiness và shutdown. Codex chạy checker gốc đầy đủ trong WSL2 có Docker và kiểm tra thêm luồng Compose với 12 request đồng thời. Phần CP5 đang chờ tôi kiểm tra trước khi sang CP6.
+- **CP5.** Dùng Codex để đọc hợp đồng Part 6, hoàn thiện các TODO và giải thích cơ chế auth, rate limit, cost guard, health/readiness và shutdown. Codex chạy checker gốc đầy đủ trong WSL2 có Docker và kiểm tra thêm luồng Compose với 12 request đồng thời. Tôi đã xác nhận CP5 trước khi chuyển sang CP6.
+- **CP6.** Dùng Codex để so sánh cấu hình Railway và Render, đọc pipeline mẫu Cloud Run, triển khai agent cùng Key Value và chạy bốn lệnh curl từ Ubuntu WSL2. Tôi đăng nhập Render và trao lại quyền điều khiển. Codex xác minh kết quả với mã HTTP thật, kiểm tra ảnh để tránh lộ secret và ghi thông tin vào `DEPLOYMENT.md`. Phần CP6 đang chờ tôi kiểm tra trước khi sang CP7.
